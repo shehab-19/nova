@@ -140,21 +140,21 @@ resource "aws_instance" "Nova_Backend_Instance" {
   key_name      = "Nova_key"
   subnet_id     = aws_subnet.Nova_Public_Subnet_1.id
   associate_public_ip_address = true
-  vpc_security_group_ids  = [aws_security_group.Nova_backend_sg.name]
+  vpc_security_group_ids  = [aws_security_group.Nova_backend_sg.id]
 
   tags = {
     Name = "Nova_Backend"
   }
 
-  # provisioner "remote-exec" {
-  #   inline = [
-  #     "sudo apt update -y",
-  #     "sudo apt install docker.io -y",
-  #     "sudo systemctl start docker",
-  #     "sudo docker pull your-backend-image",
-  #     "sudo docker run -d --name backend -p 8000:8000 your-backend-image"
-  #   ]
-  # }
+  provisioner "remote-exec" {
+    inline = [
+      "sudo apt update -y",
+      "sudo apt install docker.io -y",
+      "sudo systemctl start docker",
+      "sudo docker pull shehab19/backend",
+      "sudo docker run -d --name backend -p 8000:80 shehab19/backend"
+    ]
+  }
 
 }
 
@@ -165,25 +165,23 @@ resource "aws_instance" "Nova_Frontend_Instance" {
   key_name      = "Nova_key"
   subnet_id     = aws_subnet.Nova_Public_Subnet_2.id
   associate_public_ip_address = true
-  vpc_security_group_ids  = [aws_security_group.Nova_frontend_sg.name]
+  vpc_security_group_ids  = [aws_security_group.Nova_frontend_sg.id]
 
   tags = {
     Name = "Nova_Frontend"
   }
 
-  # provisioner "remote-exec" {
-  #   inline = [
-  #     "sudo apt update -y",
-  #     "sudo apt install docker.io -y",
-  #     "sudo systemctl start docker",
-  #     "sudo docker pull louislam/uptime-kuma",
-  #     "sudo docker run -d --name frontend -p 3001:3001 louislam/uptime-kuma"
-  #   ]
-  # }
+  provisioner "remote-exec" {
+    inline = [
+      "sudo apt update -y",
+      "sudo apt install docker.io -y",
+      "sudo systemctl start docker",
+      "sudo docker pull shehab19/uptime-kuma",
+      "sudo docker run -d --name frontend -p 3001:3001 shehab19/uptime-kuma"
+    ]
+  }
 
 }
-
-
 
 resource "aws_security_group" "Nova_mysql_sg" {
   vpc_id = aws_vpc.Nova_VPC.id
@@ -216,10 +214,11 @@ resource "aws_db_instance" "Nova_MySQL" {
   instance_class       = "db.t3.micro"
   db_name             = "mydb"
   username             = "admin"
-  password             = "pass"
+  password             = "MySecurePassword123"
   parameter_group_name = "default.mysql8.0"
   publicly_accessible  = false
   vpc_security_group_ids = [aws_security_group.Nova_mysql_sg.id] # novaa
+  db_subnet_group_name   = aws_db_subnet_group.Nova-Public-Subnet-Group.name
   multi_az             = true 
   tags = {
     Name = "Nova_MySQL"
@@ -227,16 +226,64 @@ resource "aws_db_instance" "Nova_MySQL" {
 
 }
 
-
 resource "aws_db_subnet_group" "Nova-Public-Subnet-Group" {
   subnet_ids = [
     aws_subnet.Nova_Public_Subnet_1.id,
-    aws_subnet.Nova_Public_Subnet_1.id
+    aws_subnet.Nova_Public_Subnet_2.id
   ]
 
   tags = {
     Name = "Nova-Public-Subnet-Group"
   }
+}
+
+resource "aws_sns_topic" "cpu_alarm_sns" {
+  name = "cpu_alarm_sns_topic"
+}
+
+resource "aws_sns_topic_subscription" "cpu_alarm_subscription" {
+  topic_arn = aws_sns_topic.cpu_alarm_sns.arn
+  protocol  = "email"
+  endpoint  = "amir.m.kasseb@gmail.com"  # Your email address
+}
+
+
+# CloudWatch Alarm for Frontend Instance
+resource "aws_cloudwatch_metric_alarm" "frontend_cpu_alarm" {
+  alarm_name          = "Frontend-High-CPU-Usage"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = "1"
+  metric_name         = "CPUUtilization"
+  namespace           = "AWS/EC2"
+  period              = "60"
+  statistic           = "Average"
+  threshold           = "50"  # 50% CPU usage threshold
+  alarm_description   = "This alarm triggers if the CPU utilization exceeds 50% for the frontend instance."
+
+  dimensions = {
+    InstanceId = aws_instance.Nova_Frontend_Instance.id
+  }
+
+  alarm_actions = [aws_sns_topic.cpu_alarm_sns.arn]
+}
+
+# CloudWatch Alarm for Backend Instance
+resource "aws_cloudwatch_metric_alarm" "backend_cpu_alarm" {
+  alarm_name          = "Backend-High-CPU-Usage"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = "1"
+  metric_name         = "CPUUtilization"
+  namespace           = "AWS/EC2"
+  period              = "60"
+  statistic           = "Average"
+  threshold           = "50"  # 50% CPU usage threshold
+  alarm_description   = "This alarm triggers if the CPU utilization exceeds 50% for the backend instance."
+
+  dimensions = {
+    InstanceId = aws_instance.Nova_Backend_Instance.id
+  }
+
+  alarm_actions = [aws_sns_topic.cpu_alarm_sns.arn]
 }
 
 output "Nova_frontend_instance_public_ip" {
@@ -251,6 +298,3 @@ output "Nova_backend_instance_public_ip" {
 output "mysql_rds" {
   value = aws_db_instance.Nova_MySQL.endpoint
 }
-
-
-
